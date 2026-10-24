@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  Download,
   ExternalLink,
   Globe,
   HelpCircle,
@@ -297,6 +298,20 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
     !!result.researchToken && result.competitors.filter((competitor) => competitor.ok).length >= 2;
   const prioritySignature = priorities.slice().sort().join(",");
 
+  function exportReportPdf() {
+    const previousTitle = document.title;
+    const competitorNames = result.competitors
+      .map((competitor) => competitor.name.replace(/[\\/:*?"<>|]/g, "-").trim())
+      .join("-vs-");
+    document.title = `CompetitorX-${competitorNames}-Report`;
+    const restoreTitle = () => {
+      document.title = previousTitle;
+      window.removeEventListener("afterprint", restoreTitle);
+    };
+    window.addEventListener("afterprint", restoreTitle);
+    window.print();
+  }
+
   async function testGeminiConnection() {
     if (geminiHealthInFlight.current) return;
     geminiHealthInFlight.current = true;
@@ -345,7 +360,7 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
 
   const cols = result.competitors;
   return (
-    <div className="mt-12 space-y-8">
+    <div id="competitor-report" className="print-report mt-12 space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Comparison matrix</h2>
@@ -353,9 +368,14 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
             Researched {new Date(result.generatedAt).toLocaleString()}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RotateCcw className="h-4 w-4" /> Run again
-        </Button>
+        <div className="no-print flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={exportReportPdf}>
+            <Download className="h-4 w-4" /> Export PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RotateCcw className="h-4 w-4" /> Run again
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-card">
@@ -466,7 +486,12 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
               your selected priorities.
             </p>
           </div>
-          <Button variant="outline" disabled={checkingGemini} onClick={testGeminiConnection}>
+          <Button
+            className="no-print"
+            variant="outline"
+            disabled={checkingGemini}
+            onClick={testGeminiConnection}
+          >
             {checkingGemini ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -474,7 +499,12 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
             )}
             {checkingGemini ? "Testing Gemini…" : "Test Gemini connection"}
           </Button>
-          <Button variant="hero" disabled={!eligible || generatingVerdict} onClick={generate}>
+          <Button
+            className="no-print"
+            variant="hero"
+            disabled={!eligible || generatingVerdict}
+            onClick={generate}
+          >
             {generatingVerdict ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -493,29 +523,26 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
           </p>
         )}
         {checkingGemini && (
-          <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
+          <p className="no-print mt-4 text-sm text-muted-foreground" aria-live="polite">
             Checking the server-side Gemini connection…
           </p>
         )}
         {geminiHealth && !checkingGemini && (
-          <p
-            role={geminiHealth.ok ? "status" : "alert"}
-            className={`mt-4 text-sm ${geminiHealth.ok ? "text-success" : "text-destructive"}`}
-          >
+          <p className="no-print mt-4 text-sm" role={geminiHealth.ok ? "status" : "alert"}>
             {geminiHealth.ok
               ? `${geminiHealth.message} Model: ${geminiHealth.model}.`
               : geminiHealth.error}
           </p>
         )}
         {generatingVerdict && (
-          <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
+          <p className="no-print mt-4 text-sm text-muted-foreground" aria-live="polite">
             Gemini is reviewing the verified findings and citations…
           </p>
         )}
         {verdictError && !generatingVerdict && (
           <div
             role="alert"
-            className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4"
+            className="no-print mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4"
           >
             <p className="text-sm text-destructive">{verdictError}</p>
             <Button variant="outline" size="sm" onClick={generate}>
@@ -773,7 +800,7 @@ function Analytics({
                                 {finding.value}
                                 <br />
                                 <a
-                                  className="text-primary underline"
+                                  className="print-url text-primary underline"
                                   href={finding.sourceUrl ?? undefined}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -830,7 +857,7 @@ function Analytics({
                       href={competitor.fields.integrations.sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-xs text-primary underline"
+                      className="print-url mt-1 inline-flex items-center gap-1 text-xs text-primary underline"
                     >
                       Source <ExternalLink className="h-3 w-3" />
                     </a>
@@ -851,7 +878,7 @@ function Analytics({
           This identifies the competitor with the strongest evidence coverage for your selected
           priorities. It is a documentation score, not a product-quality ranking.
         </p>
-        <fieldset className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+        <fieldset className="no-print mt-4 flex flex-wrap gap-x-5 gap-y-2">
           <legend className="sr-only">Choose comparison priorities</legend>
           {priorityFields.map(([id, , label]) => (
             <label key={id} className="inline-flex items-center gap-2 text-sm">
@@ -870,6 +897,9 @@ function Analytics({
             </label>
           ))}
         </fieldset>
+        <p className="print-only mt-4 text-sm">
+          Selected decision priorities: {chosen.map(([, , label]) => label).join(", ") || "None"}
+        </p>
         {chosen.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">Choose at least one priority.</p>
         ) : recommendation && recommendation.score > 0 ? (
@@ -892,7 +922,7 @@ function Analytics({
                       href={sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary underline"
+                      className="print-url text-primary underline"
                     >
                       {label} evidence ({status}) <ExternalLink className="inline h-3 w-3" />
                     </a>
@@ -1084,7 +1114,7 @@ function EvidenceLinks({ urls }: { urls: string[] }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-primary underline"
+          className="print-url text-xs text-primary underline"
         >
           Evidence <ExternalLink className="inline h-3 w-3" />
         </a>
@@ -1102,7 +1132,7 @@ function renderBold(text: string) {
           href={part}
           target="_blank"
           rel="noopener noreferrer"
-          className="break-all text-primary underline"
+          className="print-url break-all text-primary underline"
         >
           Source <ExternalLink className="inline h-3 w-3" />
         </a>

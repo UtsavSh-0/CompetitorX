@@ -4,6 +4,121 @@
 
 @custom-variant dark (&:is(.dark *));
 
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111 !important;
+    min-height: 0 !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #competitor-report,
+  #competitor-report * {
+    visibility: visible !important;
+  }
+
+  #competitor-report {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #111 !important;
+    background: #fff !important;
+    font-size: 9pt !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  #competitor-report .no-print {
+    display: none !important;
+  }
+
+  #competitor-report .print-only {
+    display: block !important;
+  }
+
+  #competitor-report .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  #competitor-report table {
+    width: 100% !important;
+    min-width: 0 !important;
+    border-collapse: collapse !important;
+    font-size: 8pt !important;
+  }
+
+  #competitor-report th,
+  #competitor-report td {
+    padding: 5pt !important;
+    border: 1px solid #bbb !important;
+    vertical-align: top !important;
+  }
+
+  #competitor-report thead {
+    display: table-header-group;
+  }
+
+  #competitor-report tr,
+  #competitor-report article {
+    break-inside: avoid-page;
+  }
+
+  #competitor-report h2,
+  #competitor-report h3,
+  #competitor-report h4,
+  #competitor-report h5 {
+    break-after: avoid-page;
+  }
+
+  #competitor-report details > *:not(summary) {
+    display: block !important;
+  }
+
+  #competitor-report details summary {
+    display: none !important;
+  }
+
+  #competitor-report a {
+    color: #1646a0 !important;
+    text-decoration: underline !important;
+  }
+
+  #competitor-report .print-url::after {
+    content: " (" attr(href) ")";
+    color: #444 !important;
+    font-size: 7pt !important;
+    font-weight: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  #competitor-report .shadow-card {
+    box-shadow: none !important;
+  }
+
+  #competitor-report .text-muted-foreground {
+    color: #444 !important;
+  }
+
+  #competitor-report svg {
+    max-width: 100% !important;
+  }
+}
+
 /*
  * Design system definition.
  *
@@ -159,13 +274,34 @@
   }
 }
 
-@utility bg-gradient-primary { background-image: var(--gradient-primary); }
-@utility bg-hero { background-image: var(--gradient-hero); }
-@utility text-gradient { background-image: var(--gradient-primary); -webkit-background-clip: text; background-clip: text; color: transparent; }
-@utility shadow-card { box-shadow: var(--shadow-card); }
-@utility shadow-glow { box-shadow: var(--shadow-glow); }
+@utility bg-gradient-primary {
+  background-image: var(--gradient-primary);
+}
+@utility bg-hero {
+  background-image: var(--gradient-hero);
+}
+@utility text-gradient {
+  background-image: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
+}
+@utility shadow-glow {
+  box-shadow: var(--shadow-glow);
+}
 
 @layer base {
-  body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
-  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; }
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
 }
