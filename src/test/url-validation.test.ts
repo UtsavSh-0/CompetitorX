@@ -11,5 +11,12 @@ describe("validatePublicUrl", () => {
   it("rejects localhost and IP addresses", () => {
     expect("error" in validatePublicUrl("http://localhost:3000")).toBe(true);
     expect("error" in validatePublicUrl("http://192.168.1.1")).toBe(true);
+    expect("error" in validatePublicUrl("http://127.1")).toBe(true);
+    expect("error" in validatePublicUrl("http://service.localhost")).toBe(true);
+    expect("error" in validatePublicUrl("http://metadata.google.internal")).toBe(true);
+  });
+  it("rejects credentials and unsupported local suffixes", () => {
+    expect("error" in validatePublicUrl("https://user:pass@example.com")).toBe(true);
+    expect("error" in validatePublicUrl("http://app.test")).toBe(true);
   });
 });

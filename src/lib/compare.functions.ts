@@ -11,16 +11,29 @@ export const compareWebsites = createServerFn({ method: "POST" })
       if ("error" in r) throw new Error(`${u}: ${r.error}`);
       return r.url;
     });
-    if (new Set(normalized.map((u) => new URL(u).hostname.replace(/^www\./, ""))).size !== normalized.length)
+    if (
+      new Set(normalized.map((u) => new URL(u).hostname.replace(/^www\./, ""))).size !==
+      normalized.length
+    )
       throw new Error("Please enter different websites to compare.");
     return { urls: normalized };
   })
-  .handler(async ({ data }): Promise<{ ok: true; result: CompareResponse } | { ok: false; error: string }> => {
-    const { runComparison, TinyFishError } = await import("./compare.server");
-    try {
-      return { ok: true, result: await runComparison(data.urls) };
-    } catch (e) {
-      console.error("compareWebsites failed", e);
-      return { ok: false, error: e instanceof TinyFishError ? e.message : "Something went wrong during research. Please retry." };
-    }
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; result: CompareResponse } | { ok: false; error: string }> => {
+      const { runComparison, TinyFishError } = await import("./compare.server");
+      try {
+        return { ok: true, result: await runComparison(data.urls) };
+      } catch (e) {
+        console.error("compareWebsites failed", e);
+        return {
+          ok: false,
+          error:
+            e instanceof TinyFishError
+              ? e.message
+              : "Something went wrong during research. Please retry.",
+        };
+      }
+    },
+  );

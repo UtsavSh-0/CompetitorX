@@ -26,10 +26,14 @@ export const Route = createFileRoute("/")({
       { title: "CompetitorX — Compare competitor websites with AI" },
       {
         name: "description",
-        content: "Enter 2–3 websites and get a sourced comparison of offerings, features, audiences and public pricing.",
+        content:
+          "Enter 2–3 websites and get a sourced comparison of offerings, features, audiences and public pricing.",
       },
       { property: "og:title", content: "CompetitorX — AI Competitive Intelligence" },
-      { property: "og:description", content: "Live, sourced side-by-side comparisons of competitor websites." },
+      {
+        property: "og:description",
+        content: "Live, sourced side-by-side comparisons of competitor websites.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -38,7 +42,10 @@ export const Route = createFileRoute("/")({
 });
 
 const EXAMPLES = [
-  { label: "Linear vs Asana vs Monday", urls: ["https://linear.app", "https://asana.com", "https://monday.com"] },
+  {
+    label: "Linear vs Asana vs Monday",
+    urls: ["https://linear.app", "https://asana.com", "https://monday.com"],
+  },
   { label: "Notion vs Coda", urls: ["https://www.notion.com", "https://coda.io"] },
   { label: "Vercel vs Netlify", urls: ["https://vercel.com", "https://www.netlify.com"] },
 ];
@@ -54,7 +61,12 @@ function Index() {
 
   async function submit() {
     const filled = urls.map((u) => u.trim()).filter(Boolean);
-    const errs = urls.map((u) => (u.trim() ? (("error" in validatePublicUrl(u) && (validatePublicUrl(u) as { error: string }).error) || null) : null));
+    const errs = urls.map((u) =>
+      u.trim()
+        ? ("error" in validatePublicUrl(u) && (validatePublicUrl(u) as { error: string }).error) ||
+          null
+        : null,
+    );
     setErrors(errs);
     setFatal(null);
     if (errs.some(Boolean)) return;
@@ -70,7 +82,11 @@ function Index() {
       else setFatal(res.error);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      setFatal(msg.includes(":") && msg.length < 200 ? msg : "We couldn't reach the research service. Please retry.");
+      setFatal(
+        msg.includes(":") && msg.length < 200
+          ? msg
+          : "We couldn't reach the research service. Please retry.",
+      );
     } finally {
       setLoading(false);
     }
@@ -99,8 +115,9 @@ function Index() {
             Know exactly how your <span className="text-gradient">competitors</span> stack up
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
-            Enter two or three websites. CompetitorX reads their official pages and builds a side-by-side matrix of
-            offerings, features, audiences and published pricing — every finding linked to its source.
+            Enter two or three websites. CompetitorX reads their official pages and builds a
+            side-by-side matrix of offerings, features, audiences and published pricing — every
+            finding linked to its source.
           </p>
           <Button
             variant="hero"
@@ -114,9 +131,14 @@ function Index() {
       </section>
 
       <main className="mx-auto max-w-6xl px-6 pb-24">
-        <div ref={formRef} className="mx-auto max-w-3xl scroll-mt-8 rounded-2xl border border-border bg-card p-6 shadow-card sm:p-8">
+        <div
+          ref={formRef}
+          className="mx-auto max-w-3xl scroll-mt-8 rounded-2xl border border-border bg-card p-6 shadow-card sm:p-8"
+        >
           <h2 className="text-xl font-semibold">Websites to compare</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Public http(s) addresses only. 2–3 competitors.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Public http(s) addresses only. 2–3 competitors.
+          </p>
           <div className="mt-5 space-y-3">
             {urls.map((u, i) => (
               <div key={i}>
@@ -141,8 +163,14 @@ function Index() {
                     />
                   </div>
                   {urls.length > 2 && (
-                    <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Remove website" disabled={loading}
-                      onClick={() => setUrls(urls.filter((_, j) => j !== i))}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-11 w-11"
+                      aria-label="Remove website"
+                      disabled={loading}
+                      onClick={() => setUrls(urls.filter((_, j) => j !== i))}
+                    >
                       <X className="h-4 w-4" />
                     </Button>
                   )}
@@ -153,22 +181,46 @@ function Index() {
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             {urls.length < 3 ? (
-              <Button variant="ghost" size="sm" disabled={loading} onClick={() => setUrls([...urls, ""])}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={() => setUrls([...urls, ""])}
+              >
                 <Plus className="h-4 w-4" /> Add a third website
               </Button>
-            ) : <span />}
-            <Button variant="hero" className="h-11 rounded-xl px-6" disabled={loading} onClick={submit}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            ) : (
+              <span />
+            )}
+            <Button
+              variant="hero"
+              className="h-11 rounded-xl px-6"
+              disabled={loading}
+              onClick={submit}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
               {loading ? "Researching…" : "Compare Websites"}
             </Button>
           </div>
           <div className="mt-6 border-t border-border pt-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Try an example</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Try an example
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {EXAMPLES.map((ex) => (
-                <button key={ex.label} disabled={loading}
-                  onClick={() => { setUrls(ex.urls); setErrors([]); }}
-                  className="rounded-full border border-border bg-secondary px-3 py-1 text-sm text-secondary-foreground transition hover:border-primary/40 disabled:opacity-50">
+                <button
+                  key={ex.label}
+                  disabled={loading}
+                  onClick={() => {
+                    setUrls(ex.urls);
+                    setErrors([]);
+                  }}
+                  className="rounded-full border border-border bg-secondary px-3 py-1 text-sm text-secondary-foreground transition hover:border-primary/40 disabled:opacity-50"
+                >
                   {ex.label}
                 </button>
               ))}
@@ -177,20 +229,34 @@ function Index() {
         </div>
 
         {loading && (
-          <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-card" aria-live="polite">
-            <p className="font-medium">Researching {urls.filter((u) => u.trim()).length} websites… this usually takes 30–90 seconds.</p>
-            <p className="mt-3 text-sm text-muted-foreground">TinyFish is searching and retrieving public pages. Retrieved page and extraction details appear here when the request completes.</p>
+          <div
+            className="mx-auto mt-8 max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-card"
+            aria-live="polite"
+          >
+            <p className="font-medium">
+              Researching {urls.filter((u) => u.trim()).length} websites… this usually takes 30–90
+              seconds.
+            </p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              TinyFish is searching and retrieving public pages. Retrieved page and extraction
+              details appear here when the request completes.
+            </p>
           </div>
         )}
 
         {fatal && !loading && (
-          <div role="alert" className="mx-auto mt-8 flex max-w-3xl items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
+          <div
+            role="alert"
+            className="mx-auto mt-8 flex max-w-3xl items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-5"
+          >
             <AlertTriangle className="mt-0.5 h-5 w-5 text-destructive" />
             <div className="flex-1">
               <p className="font-medium text-foreground">Comparison couldn't be completed</p>
               <p className="mt-1 text-sm text-muted-foreground">{fatal}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={submit}><RotateCcw className="h-4 w-4" /> Retry</Button>
+            <Button variant="outline" size="sm" onClick={submit}>
+              <RotateCcw className="h-4 w-4" /> Retry
+            </Button>
           </div>
         )}
 
@@ -207,9 +273,13 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Comparison matrix</h2>
-          <p className="text-sm text-muted-foreground">Researched {new Date(result.generatedAt).toLocaleString()}</p>
+          <p className="text-sm text-muted-foreground">
+            Researched {new Date(result.generatedAt).toLocaleString()}
+          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onRetry}><RotateCcw className="h-4 w-4" /> Run again</Button>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          <RotateCcw className="h-4 w-4" /> Run again
+        </Button>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-card">
@@ -219,11 +289,22 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
               <th className="w-44 p-4 text-left font-medium text-muted-foreground">Field</th>
               {cols.map((c) => (
                 <th key={c.inputUrl} className="p-4 text-left align-top">
-                  <div className="font-display text-base font-semibold text-foreground">{c.name}</div>
-                  <a href={c.inputUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-normal text-primary hover:underline">
+                  <div className="font-display text-base font-semibold text-foreground">
+                    {c.name}
+                  </div>
+                  <a
+                    href={c.inputUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-normal text-primary hover:underline"
+                  >
                     {c.inputUrl.replace(/^https?:\/\//, "")} <ExternalLink className="h-3 w-3" />
                   </a>
-                  {c.extraction === "basic" && <div className="mt-1 text-xs font-normal text-warning">Basic extraction (AI unavailable)</div>}
+                  {c.extraction === "basic" && (
+                    <div className="mt-1 text-xs font-normal text-warning">
+                      Rule-based extraction (LLM unavailable)
+                    </div>
+                  )}
                 </th>
               ))}
             </tr>
@@ -231,7 +312,9 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
           <tbody>
             {FIELD_KEYS.map((k) => (
               <tr key={k} className="border-t border-border">
-                <th scope="row" className="p-4 text-left align-top font-medium text-foreground">{FIELD_LABELS[k]}</th>
+                <th scope="row" className="p-4 text-left align-top font-medium text-foreground">
+                  {FIELD_LABELS[k]}
+                </th>
                 {cols.map((c) => (
                   <td key={c.inputUrl} className="p-4 align-top">
                     {!c.ok ? (
@@ -244,7 +327,9 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
               </tr>
             ))}
             <tr className="border-t border-border bg-muted/50">
-              <th scope="row" className="p-4 text-left align-top font-medium text-foreground">Pages researched</th>
+              <th scope="row" className="p-4 text-left align-top font-medium text-foreground">
+                Pages researched
+              </th>
               {cols.map((c) => (
                 <td key={c.inputUrl} className="p-4 align-top">
                   {!c.ok ? (
@@ -256,13 +341,20 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
                     <ul className="space-y-1">
                       {c.pages.map((p) => (
                         <li key={p.url}>
-                          <a href={p.url} target="_blank" rel="noopener noreferrer" className="break-all text-xs text-primary hover:underline">
+                          <a
+                            href={p.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="break-all text-xs text-primary hover:underline"
+                          >
                             {p.url.replace(/^https?:\/\//, "")}
                           </a>
                         </li>
                       ))}
                       {c.pageErrors.map((e) => (
-                        <li key={e.url} className="text-xs text-muted-foreground">Skipped {e.url.replace(/^https?:\/\//, "")}: {e.error}</li>
+                        <li key={e.url} className="text-xs text-muted-foreground">
+                          Skipped {e.url.replace(/^https?:\/\//, "")}: {e.error}
+                        </li>
                       ))}
                     </ul>
                   )}
@@ -276,23 +368,58 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
       <Analytics result={result} />
 
       <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-        <h3 className="flex items-center gap-2 text-lg font-semibold"><Sparkles className="h-4 w-4 text-primary" /> Key differences</h3>
+        <h3 className="flex items-center gap-2 text-lg font-semibold">
+          <Sparkles className="h-4 w-4 text-primary" /> Key differences
+        </h3>
         {result.summary ? (
           <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground">
-            {result.summary.split("\n").map((l) => l.replace(/^[-*•]\s*/, "").trim()).filter(Boolean).map((l, i) => (
-              <li key={i} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><span>{renderBold(l)}</span></li>
-            ))}
+            {result.summary
+              .split("\n")
+              .map((l) => l.replace(/^[-*•]\s*/, "").trim())
+              .filter(Boolean)
+              .map((l, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                  <span>{renderBold(l)}</span>
+                </li>
+              ))}
           </ul>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">{result.summaryNote}</p>
         )}
-        <p className="mt-4 text-xs text-muted-foreground">Summary is based only on the findings above. Verify important details on the linked sources.</p>
+        <p className="mt-4 text-xs text-muted-foreground">
+          Summary is based only on the findings above. Verify important details on the linked
+          sources.
+        </p>
+        {result.summaryNote && (
+          <p className="mt-2 text-xs text-muted-foreground">{result.summaryNote}</p>
+        )}
       </div>
     </div>
   );
 }
 
 function Analytics({ result }: { result: CompareResponse }) {
+  const [priorities, setPriorities] = useState<string[]>(["features", "integrations"]);
+  const priorityFields = [
+    ["pricing", "published_pricing", "Published price"],
+    ["features", "main_features", "Features"],
+    ["integrations", "integrations", "Integrations"],
+    ["ai", "ai_capabilities", "AI capabilities"],
+    ["collaboration", "collaboration", "Collaboration"],
+    ["security", "security_claims", "Security requirements"],
+  ] as const;
+  const chosen = priorityFields.filter(([id]) => priorities.includes(id));
+  const recommendationScores = result.competitors
+    .map((competitor) => {
+      const supported = chosen.filter(([, key]) => {
+        const finding = competitor.fields?.[key];
+        return finding?.status === "found" && !!finding.sourceUrl && !!finding.value;
+      });
+      return { competitor, supported, score: chosen.length ? supported.length / chosen.length : 0 };
+    })
+    .sort((a, b) => b.score - a.score);
+  const recommendation = recommendationScores[0];
   const data = result.competitors.map((c) => {
     const findings = c.fields ? Object.values(c.fields) : [];
     return {
@@ -303,11 +430,49 @@ function Analytics({ result }: { result: CompareResponse }) {
       failed: c.pageErrors.length + (c.ok ? 0 : 1),
     };
   });
+  const featureRows = [
+    ...new Set(
+      result.competitors.flatMap(
+        (competitor) =>
+          competitor.fields?.main_features.value
+            ?.split(/;\s*/)
+            .map((value) => value.trim())
+            .filter(Boolean) ?? [],
+      ),
+    ),
+  ];
+  const namedIntegrations = result.competitors.map((competitor) => {
+    const value = competitor.fields?.integrations.value ?? "";
+    const names = value.split(/;\s*/).flatMap((statement) => {
+      const match = statement.match(
+        /(?:integrations?\s+(?:include|with)|integrates?\s+with|connects?\s+to)\s+(.+)/i,
+      );
+      return match
+        ? match[1]
+            .split(/,|\band\b/i)
+            .map((name) => name.trim().replace(/[. ]+$/, ""))
+            .filter(Boolean)
+        : [];
+    });
+    return { competitor, names: [...new Set(names)] };
+  });
+  const integrationCounts = new Map<string, number>();
+  for (const item of namedIntegrations)
+    for (const name of item.names)
+      integrationCounts.set(
+        name.toLowerCase(),
+        (integrationCounts.get(name.toLowerCase()) ?? 0) + 1,
+      );
   return (
     <section aria-labelledby="analytics-heading" className="space-y-5">
       <div>
-        <h3 id="analytics-heading" className="text-xl font-semibold">Research analytics</h3>
-        <p className="text-sm text-muted-foreground">Counts reflect this run’s retrieved pages and source-backed findings. Coverage describes research completeness, not product quality.</p>
+        <h3 id="analytics-heading" className="text-xl font-semibold">
+          Research analytics
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Counts reflect this run’s retrieved pages and source-backed findings. Coverage describes
+          research completeness, not product quality.
+        </p>
       </div>
       <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
         <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
@@ -319,27 +484,258 @@ function Analytics({ result }: { result: CompareResponse }) {
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} width={28} />
                 <Tooltip />
-                <Bar dataKey="pages" name="Pages retrieved" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="backed" name="Source-backed findings" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="unavailable" name="Unavailable fields" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="failed" name="Failed retrievals" fill="var(--chart-5)" radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="pages"
+                  name="Pages retrieved"
+                  fill="var(--chart-1)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="backed"
+                  name="Source-backed findings"
+                  fill="var(--chart-2)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="unavailable"
+                  name="Unavailable fields"
+                  fill="var(--chart-4)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="failed"
+                  name="Failed retrievals"
+                  fill="var(--chart-5)"
+                  radius={[4, 4, 0, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
         <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <h4 className="font-medium">Research activity</h4>
-          <p className="mt-1 text-xs text-muted-foreground">Completed {new Date(result.generatedAt).toLocaleString()}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Completed {new Date(result.generatedAt).toLocaleString()}
+          </p>
           <ul className="mt-4 space-y-4">
             {result.competitors.map((c) => (
-              <li key={c.inputUrl} className="border-t border-border pt-3 first:border-0 first:pt-0">
-                <p className="font-medium">{c.name} <span className={c.ok ? "text-xs text-success" : "text-xs text-destructive"}>{c.ok ? "Retrieved" : "Failed"}</span></p>
-                <p className="mt-1 text-sm text-muted-foreground">{c.pages.length} page(s) retrieved · {c.pageErrors.length} failed · extraction: {c.extraction ?? "not run"}</p>
+              <li
+                key={c.inputUrl}
+                className="border-t border-border pt-3 first:border-0 first:pt-0"
+              >
+                <p className="font-medium">
+                  {c.name}{" "}
+                  <span className={c.ok ? "text-xs text-success" : "text-xs text-destructive"}>
+                    {c.ok ? "Retrieved" : "Failed"}
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {c.discoveredPages?.length ?? c.pages.length} pages discovered
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {c.pages.length} page(s) retrieved · {c.pageErrors.length} failed · extraction:{" "}
+                  {c.extraction ?? "not run"}
+                </p>
                 {c.error && <p className="mt-1 text-sm text-destructive">{c.error}</p>}
-                {c.pageErrors.length > 0 && <ul className="mt-2 space-y-1 text-xs text-muted-foreground">{c.pageErrors.map((e) => <li key={`${e.url}-${e.error}`}>Failed: {e.url} — {e.error}</li>)}</ul>}
+                {c.pageErrors.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {c.pageErrors.map((e) => (
+                      <li key={`${e.url}-${e.error}`}>
+                        Failed: {e.url} — {e.error}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ul>
+        </div>
+      </div>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="overflow-x-auto rounded-2xl border border-border bg-card p-5 shadow-card">
+          <h4 className="font-medium">Feature coverage</h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Features are statements found in retrieved content. An unlisted feature is unknown, not
+            unsupported.
+          </p>
+          {featureRows.length ? (
+            <table className="mt-4 w-full min-w-[460px] text-sm">
+              <thead>
+                <tr>
+                  <th className="p-2 text-left">Listed feature</th>
+                  {result.competitors.map((c) => (
+                    <th key={c.inputUrl} className="p-2 text-left">
+                      {c.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {featureRows.map((feature) => (
+                  <tr key={feature} className="border-t border-border">
+                    <th className="p-2 text-left font-normal">{feature}</th>
+                    {result.competitors.map((c) => {
+                      const finding = c.fields?.main_features;
+                      const present = !!finding?.value
+                        ?.split(/;\s*/)
+                        .some((value) => value.trim().toLowerCase() === feature.toLowerCase());
+                      return (
+                        <td key={c.inputUrl} className="p-2 align-top">
+                          {present && finding ? (
+                            <details>
+                              <summary className="cursor-pointer text-success">Listed</summary>
+                              <div className="mt-1 max-w-64 rounded border border-border p-2 text-xs">
+                                {finding.value}
+                                <br />
+                                <a
+                                  className="text-primary underline"
+                                  href={finding.sourceUrl ?? undefined}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  Evidence source
+                                </a>
+                              </div>
+                            </details>
+                          ) : (
+                            <span className="text-muted-foreground">Unknown</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              No feature statements were extracted from the retrieved pages.
+            </p>
+          )}
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+          <h4 className="font-medium">Integration ecosystem</h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Only names explicitly introduced as integrations are counted. Common means listed by at
+            least two researched competitors.
+          </p>
+          {namedIntegrations.some((item) => item.names.length) ? (
+            <ul className="mt-4 space-y-3">
+              {namedIntegrations.map(({ competitor, names }) => (
+                <li key={competitor.inputUrl}>
+                  <p className="text-sm font-medium">{competitor.name}</p>
+                  {names.length ? (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {names.map((name) => (
+                        <span key={name} className="rounded-full bg-secondary px-2 py-1 text-xs">
+                          {name} ·{" "}
+                          {integrationCounts.get(name.toLowerCase())! > 1
+                            ? "Common"
+                            : "Unique in this comparison"}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No explicitly named integrations found.
+                    </p>
+                  )}
+                  {competitor.fields?.integrations.sourceUrl && (
+                    <a
+                      href={competitor.fields.integrations.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 text-xs text-primary underline"
+                    >
+                      Source <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              No integration names could be reliably separated from the retrieved statements.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+        <h4 className="font-medium">Best Fit for Your Needs</h4>
+        <p className="mt-1 text-xs text-muted-foreground">
+          This identifies the competitor with the most verified, source-linked information for your
+          selected priorities. It measures evidence coverage, not product quality.
+        </p>
+        <fieldset className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+          <legend className="sr-only">Choose comparison priorities</legend>
+          {priorityFields.map(([id, , label]) => (
+            <label key={id} className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={priorities.includes(id)}
+                onChange={(event) =>
+                  setPriorities((current) =>
+                    event.target.checked ? [...current, id] : current.filter((item) => item !== id),
+                  )
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+        {chosen.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">Choose at least one priority.</p>
+        ) : recommendation?.score ? (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="font-semibold">
+              {recommendation.competitor.name} · {recommendation.supported.length}/{chosen.length}{" "}
+              priorities verified
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Method: each selected priority has equal weight. A priority counts only when the
+              finding is marked found and has a source URL. Uncertain or missing evidence does not
+              count.
+            </p>
+            <ul className="mt-3 flex flex-wrap gap-3">
+              {recommendation.supported.map(([, key, label]) => {
+                const finding = recommendation.competitor.fields![key];
+                return (
+                  <li key={key} className="text-sm">
+                    <a
+                      href={finding.sourceUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      {label} evidence <ExternalLink className="inline h-3 w-3" />
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">
+            No selected priority has verified sourced evidence yet. Review the linked uncertain
+            findings before deciding.
+          </p>
+        )}
+      </div>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+          <h4 className="font-medium">Pricing comparison</h4>
+          <p className="mt-2 text-sm text-muted-foreground">
+            No numeric chart is shown until prices can be normalized by currency, billing period,
+            and unit. Unverified amounts are excluded.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+          <h4 className="font-medium">Capability radar</h4>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Capability scores are unavailable because this run does not yet produce normalized,
+            evidence-counted scores for all five dimensions. Missing information is not scored as
+            low capability.
+          </p>
         </div>
       </div>
     </section>
@@ -349,8 +745,22 @@ function Analytics({ result }: { result: CompareResponse }) {
 function renderBold(text: string) {
   return text.split(/(https?:\/\/[^\s)]+|\*\*[^*]+\*\*)/g).map((part, i) => {
     if (part.startsWith("http://") || part.startsWith("https://"))
-      return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline">Source <ExternalLink className="inline h-3 w-3" /></a>;
-    return part.startsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : <span key={i}>{part}</span>;
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="break-all text-primary underline"
+        >
+          Source <ExternalLink className="inline h-3 w-3" />
+        </a>
+      );
+    return part.startsWith("**") ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      <span key={i}>{part}</span>
+    );
   });
 }
 
@@ -366,14 +776,23 @@ function FindingCell({ f }: { f: Finding }) {
       <p className="leading-relaxed text-foreground">{f.value}</p>
       <div className="flex flex-wrap items-center gap-2">
         {f.status === "uncertain" && (
-          <span className="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">Uncertain</span>
+          <span className="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+            Uncertain
+          </span>
         )}
         {f.sourceUrl ? (
           <details className="text-xs">
-            <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-primary hover:underline">Evidence and source</summary>
+            <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-primary hover:underline">
+              Evidence and source
+            </summary>
             <div className="mt-2 space-y-1 rounded-md border border-border bg-muted/40 p-2">
               <p className="text-foreground">{f.value}</p>
-              <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 break-all text-primary hover:underline">
+              <a
+                href={f.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 break-all text-primary hover:underline"
+              >
                 {f.sourceUrl} <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
             </div>

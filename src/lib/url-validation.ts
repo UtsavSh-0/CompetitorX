@@ -11,8 +11,15 @@ export function validatePublicUrl(raw: string): { url: string } | { error: strin
   }
   if (u.protocol !== "http:" && u.protocol !== "https:")
     return { error: "Only http and https websites are supported." };
-  const host = u.hostname.toLowerCase();
-  if (!host.includes(".") || host.endsWith(".local") || host.endsWith(".internal") || host === "localhost")
+  const host = u.hostname.toLowerCase().replace(/\.$/, "");
+  if (
+    !host.includes(".") ||
+    [".local", ".localhost", ".internal", ".home.arpa", ".test", ".invalid"].some((suffix) =>
+      host.endsWith(suffix),
+    ) ||
+    host === "localhost" ||
+    host === "instance-data"
+  )
     return { error: "Please use a public website address." };
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":") || host.startsWith("["))
     return { error: "IP addresses aren't supported — use a public domain name." };

@@ -44,6 +44,7 @@ export interface CompetitorResult {
   ok: boolean;
   error: string | null;
   pages: SourcePage[];
+  discoveredPages?: string[];
   pageErrors: { url: string; error: string }[];
   fields: Record<FieldKey, Finding> | null;
   extraction: "ai" | "basic" | null;
