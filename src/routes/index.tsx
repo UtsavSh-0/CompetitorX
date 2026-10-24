@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { compareWebsites } from "@/lib/compare.functions";
+import { hasUsedComparison, markComparisonUsed } from "@/lib/compare-limit";
 import { checkGeminiHealth } from "@/lib/gemini-health.functions";
 import { generateVerdict } from "@/lib/verdict.functions";
 import { rankByEvidencePriorities } from "@/lib/compare.analytics";
@@ -67,10 +68,21 @@ function Index() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CompareResponse | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [limitLoaded, setLimitLoaded] = useState(false);
+  const [limitReached, setLimitReached] = useState(false);
+  const limitRef = useRef(false);
   const formRef = useRef<HTMLDivElement>(null);
   const run = useServerFn(compareWebsites);
 
+  useEffect(() => {
+    const used = hasUsedComparison(document.cookie);
+    limitRef.current = used;
+    setLimitReached(used);
+    setLimitLoaded(true);
+  }, []);
+
   async function submit() {
+    if (!limitLoaded || limitRef.current) return;
     const filled = urls.map((u) => u.trim()).filter(Boolean);
     const errs = urls.map((u) =>
       u.trim()
@@ -85,6 +97,9 @@ function Index() {
       setFatal("Enter at least two websites to compare.");
       return;
     }
+    limitRef.current = true;
+    setLimitReached(true);
+    markComparisonUsed();
     setLoading(true);
     setResult(null);
     try {
@@ -150,6 +165,16 @@ function Index() {
           <p className="mt-1 text-sm text-muted-foreground">
             Public http(s) addresses only. 2–3 competitors.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            One comparison is available per browser to manage research service limits. Clearing
+            this site’s cookies resets your access.
+          </p>
+          {limitReached && (
+            <p role="status" className="mt-3 rounded-lg bg-muted p-3 text-sm">
+              This browser has already used its comparison. Clear this site’s cookies to compare
+              again.
+            </p>
+          )}
           <div className="mt-5 space-y-3">
             {urls.map((u, i) => (
               <div key={i}>
@@ -163,7 +188,7 @@ function Index() {
                       aria-invalid={!!errors[i]}
                       placeholder="https://example.com"
                       value={u}
-                      disabled={loading}
+                      disabled={loading || !limitLoaded || limitReached}
                       className="h-11 pl-8"
                       onChange={(e) => {
                         const next = [...urls];
@@ -195,7 +220,7 @@ function Index() {
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={loading}
+                disabled={loading || !limitLoaded || limitReached}
                 onClick={() => setUrls([...urls, ""])}
               >
                 <Plus className="h-4 w-4" /> Add a third website
@@ -206,7 +231,7 @@ function Index() {
             <Button
               variant="hero"
               className="h-11 rounded-xl px-6"
-              disabled={loading}
+              disabled={loading || !limitLoaded || limitReached}
               onClick={submit}
             >
               {loading ? (
@@ -225,7 +250,7 @@ function Index() {
               {EXAMPLES.map((ex) => (
                 <button
                   key={ex.label}
-                  disabled={loading}
+                  disabled={loading || !limitLoaded || limitReached}
                   onClick={() => {
                     setUrls(ex.urls);
                     setErrors([]);
@@ -265,19 +290,31 @@ function Index() {
               <p className="font-medium text-foreground">Comparison couldn't be completed</p>
               <p className="mt-1 text-sm text-muted-foreground">{fatal}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={submit}>
-              <RotateCcw className="h-4 w-4" /> Retry
-            </Button>
+            {!limitReached && (
+              <Button variant="outline" size="sm" onClick={submit}>
+                <RotateCcw className="h-4 w-4" /> Retry
+              </Button>
+            )}
           </div>
         )}
 
-        {result && !loading && <Results result={result} onRetry={submit} />}
+        {result && !loading && (
+          <Results result={result} onRetry={submit} limitReached={limitReached} />
+        )}
       </main>
     </div>
   );
 }
 
-function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => void }) {
+function Results({
+  result,
+  onRetry,
+  limitReached,
+}: {
+  result: CompareResponse;
+  onRetry: () => void;
+  limitReached: boolean;
+}) {
   const [priorities, setPriorities] = useState<string[]>(["features", "integrations"]);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [verdictFor, setVerdictFor] = useState<string | null>(null);
@@ -372,9 +409,11 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
           <Button variant="outline" size="sm" onClick={exportReportPdf}>
             <Download className="h-4 w-4" /> Export PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RotateCcw className="h-4 w-4" /> Run again
-          </Button>
+          {!limitReached && (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              <RotateCcw className="h-4 w-4" /> Run again
+            </Button>
+          )}
         </div>
       </div>
 
