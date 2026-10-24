@@ -91,7 +91,7 @@ async function tinyfishFetch(apiKey: string, urls: string[], links: boolean) {
     if (
       "error" in safeFinal ||
       !expectedDomain ||
-      baseDomain(new URL(safeFinal.url).hostname) !== expectedDomain
+      !isSameSite(new URL(safeFinal.url).hostname, expectedDomain)
     ) {
       errors.push({ url: o.url, error: "The website redirected to a disallowed address." });
       continue;
@@ -119,30 +119,44 @@ async function tinyfishFetch(apiKey: string, urls: string[], links: boolean) {
   return { pages, errors };
 }
 
-async function tinyfishSearch(apiKey: string, query: string, domain: string): Promise<string[]> {
+async function tinyfishSearch(
+  apiKey: string,
+  query: string,
+  domain: string,
+): Promise<{ urls: string[]; error: string | null }> {
   try {
-    const params = new URLSearchParams({ query, include_domains: domain });
+    const params = new URLSearchParams({ query: `site:${domain} ${query}` });
     const res = await fetch(`${SEARCH_URL}?${params}`, {
       headers: { "X-API-Key": apiKey },
       signal: AbortSignal.timeout(20000),
     });
     if (!res.ok) {
-      console.error("TinyFish search failed", res.status);
-      return [];
+      return { urls: [], error: describeHttp(res.status) };
     }
     const json = (await res.json()) as { results?: { url?: unknown }[] };
-    return (json.results ?? []).map((r) => r.url).filter((u): u is string => typeof u === "string");
-  } catch (e) {
-    console.error("TinyFish search error", e);
-    return [];
+    if (!Array.isArray(json.results))
+      return { urls: [], error: "TinyFish Search returned an invalid response." };
+    return {
+      urls: json.results.map((r) => r.url).filter((u): u is string => typeof u === "string"),
+      error: null,
+    };
+  } catch {
+    return { urls: [], error: "TinyFish Search timed out or could not be reached." };
   }
 }
 
 const baseDomain = (host: string) => host.replace(/^www\./, "").toLowerCase();
+const isSameSite = (host: string, domain: string) => {
+  const normalizedHost = baseDomain(host);
+  return normalizedHost === domain || normalizedHost.endsWith(`.${domain}`);
+};
 
 function pickRelevantLinks(links: string[], domain: string, exclude: Set<string>): string[] {
   const patterns: [RegExp, number][] = [
     [/pric|plans/, 10],
+    [/integrat|partners/, 9],
+    [/security|trust|compliance|soc-?2|iso-?27001/, 8],
+    [/docs|developer/, 7],
     [/feature/, 8],
     [/product|platform/, 6],
     [/service|solution/, 6],
@@ -156,13 +170,12 @@ function pickRelevantLinks(links: string[], domain: string, exclude: Set<string>
     } catch {
       continue;
     }
-    if (baseDomain(u.hostname) !== domain || !/^https?:$/.test(u.protocol)) continue;
+    if (!isSameSite(u.hostname, domain) || !/^https?:$/.test(u.protocol)) continue;
     u.hash = "";
     u.search = "";
     const path = u.pathname.toLowerCase();
-    if (path.split("/").filter(Boolean).length > 2) continue;
-    if (/blog|careers|jobs|legal|privacy|terms|login|signin|signup|docs|changelog/.test(path))
-      continue;
+    if (path.split("/").filter(Boolean).length > 3) continue;
+    if (/blog|careers|jobs|legal|privacy|terms|login|signin|signup|changelog/.test(path)) continue;
     const key = u.toString().replace(/\/$/, "");
     if (exclude.has(key)) continue;
     const score = patterns.find(([re]) => re.test(path))?.[1] ?? 0;
@@ -173,8 +186,9 @@ function pickRelevantLinks(links: string[], domain: string, exclude: Set<string>
 
 const findingSchema = z.object({
   value: z.string().nullable(),
-  status: z.enum(["found", "uncertain", "unavailable"]),
+  status: z.enum(["found", "uncertain", "not_found", "not_researched", "retrieval_failed"]),
   source_url: z.string().nullable(),
+  evidence_excerpt: z.string().nullable(),
 });
 const extractionSchema = z.object({
   company_name: z.string(),
@@ -220,10 +234,11 @@ async function aiExtract(aiKey: string, pages: FetchedPage[]) {
     instructions:
       "You extract competitive intelligence ONLY from the provided website content. Never use outside knowledge or guess. " +
       "For each field: value is a concise summary (features/services/differentiators as a short '; '-separated list, max ~40 words). " +
-      "status 'found' when clearly stated, 'uncertain' when only implied, 'unavailable' when not present (value null). " +
-      "For published_pricing, quote plan names and exact prices exactly as written; if no prices appear, mark unavailable. " +
-      "For integrations, list only named integrations explicitly stated in the supplied page content. " +
-      "source_url must be exactly one of the SOURCE URLs where the evidence appears.",
+      "status 'found' when clearly stated with an exact supporting excerpt, 'uncertain' when only implied, and 'not_found' when absent from the supplied pages. " +
+      "Copy a short, exact evidence_excerpt from the source text for every non-empty value. Leave it null when there is no exact excerpt. " +
+      "For published_pricing, quote plan names and exact prices exactly as written; if no prices appear, mark not_found. " +
+      "For integrations, return only exact integration names explicitly listed in the supplied page content, separated by semicolons. " +
+      "source_url must be exactly one of the SOURCE URLs where the evidence excerpt appears.",
     messages: [{ role: "user", content: corpus }],
     output: Output.object({ schema: extractionSchema }),
     providerOptions: openaiOptions,
@@ -232,7 +247,8 @@ async function aiExtract(aiKey: string, pages: FetchedPage[]) {
 }
 
 function basicExtract(pages: FetchedPage[]): Record<FieldKey, Finding> {
-  const empty = (): Finding => ({ value: null, status: "unavailable", sourceUrl: null });
+  const extractedAt = new Date().toISOString();
+  const empty = (): Finding => ({ value: null, status: "not_found", sourceUrl: null, extractedAt });
   const fields = Object.fromEntries(FIELD_KEYS.map((k) => [k, empty()])) as Record<
     FieldKey,
     Finding
@@ -241,26 +257,29 @@ function basicExtract(pages: FetchedPage[]): Record<FieldKey, Finding> {
   if (home?.description)
     fields.core_offering = {
       value: home.description,
-      status: "uncertain",
+      status: "found",
       sourceUrl: home.finalUrl,
+      evidenceExcerpt: home.description,
+      extractedAt,
     };
   const textLines = pages.flatMap((page) =>
     page.text
       .split("\n")
-      .map((line) =>
-        line
+      .map((rawLine) => ({
+        evidenceExcerpt: rawLine.trim(),
+        line: rawLine
           .replace(/^\s{0,3}(?:[-*+] |\d+[.)] |#{1,6} )/, "")
           .replace(/[*_`|]/g, " ")
           .trim(),
-      )
-      .filter((line) => line.length >= 24 && line.length <= 240)
-      .map((line) => ({ page, line })),
+      }))
+      .filter(({ line }) => line.length >= 24 && line.length <= 240)
+      .map((entry) => ({ page, ...entry })),
   );
   const pickLines = (key: FieldKey, pattern: RegExp) => {
     const matches = [
       ...new Map(
         textLines
-          .flatMap(({ page, line }) =>
+          .flatMap(({ page, line, evidenceExcerpt }) =>
             line
               .split(/(?<=[.!?])\s+(?=[A-Z])/)
               .map((sentence) => sentence.trim())
@@ -273,20 +292,29 @@ function basicExtract(pages: FetchedPage[]): Record<FieldKey, Finding> {
                     sentence,
                   ),
               )
-              .map((sentence) => ({ page, line: sentence })),
+              .map((sentence) => ({ page, line: sentence, evidenceExcerpt })),
           )
           .map((match) => [match.line.toLowerCase(), match]),
       ).values(),
     ].slice(0, 3);
-    if (matches.length)
+    if (matches.length) {
+      const firstMatch = matches[0];
+      if (!firstMatch) return;
+      const sourceUrl = firstMatch.page.finalUrl;
+      const sourceMatches = matches.filter((match) => match.page.finalUrl === sourceUrl);
+      const firstSourceMatch = sourceMatches[0];
+      if (!firstSourceMatch) return;
       fields[key] = {
-        value: matches
+        value: sourceMatches
           .map(({ line }) => line)
           .join("; ")
           .slice(0, 400),
-        status: "uncertain",
-        sourceUrl: matches[0].page.finalUrl,
+        status: "found",
+        sourceUrl,
+        evidenceExcerpt: firstSourceMatch.evidenceExcerpt.slice(0, 400),
+        extractedAt,
       };
+    }
   };
   pickLines(
     "main_features",
@@ -337,22 +365,26 @@ async function researchCompetitor(
   inputUrl: string,
 ): Promise<CompetitorResult> {
   const domain = baseDomain(new URL(inputUrl).hostname);
+  const startedAt = new Date().toISOString();
   const result: CompetitorResult = {
     inputUrl,
     name: domain,
+    startedAt,
     ok: false,
     error: null,
     pages: [],
     pageErrors: [],
+    searchError: null,
     discoveredPages: [inputUrl],
     fields: null,
     extraction: null,
   };
 
-  const [home, searchUrls] = await Promise.all([
+  const [home, search] = await Promise.all([
     tinyfishFetch(tfKey, [inputUrl], true),
-    tinyfishSearch(tfKey, `${domain} pricing plans features`, domain),
+    tinyfishSearch(tfKey, "pricing plans features integrations security documentation", domain),
   ]);
+  result.searchError = search.error;
   result.pageErrors.push(...home.errors);
   const homePage = home.pages[0];
   if (!homePage || !homePage.text.trim()) {
@@ -361,7 +393,7 @@ async function researchCompetitor(
   }
 
   const seen = new Set([homePage.url, homePage.finalUrl].map((u) => u.replace(/\/$/, "")));
-  const discovered = pickRelevantLinks([...homePage.links, ...searchUrls], domain, seen);
+  const discovered = pickRelevantLinks([...homePage.links, ...search.urls], domain, seen);
   result.discoveredPages = [inputUrl, ...discovered];
   const candidates = discovered.slice(0, 3);
   const pages: FetchedPage[] = [homePage];
@@ -380,6 +412,13 @@ async function researchCompetitor(
   result.pages = pages.map<SourcePage>((p) => ({ url: p.finalUrl, title: p.title }));
   const pageName = homePage.title?.split(/\s+[|–—-]\s+|:\s+/)[0]?.trim();
   if (pageName && pageName.length <= 60) result.name = pageName;
+  if (
+    !pageName?.toLowerCase().includes((domain.split(".")[0] ?? domain).toLowerCase()) &&
+    !homePage.title?.includes(":")
+  ) {
+    const domainName = (domain.split(".")[0] ?? domain).replace(/[-_]/g, " ");
+    result.name = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+  }
   result.ok = true;
 
   const allowed = new Set(pages.flatMap((p) => [p.finalUrl, p.url]));
@@ -387,16 +426,43 @@ async function researchCompetitor(
     try {
       const out = await aiExtract(aiKey, pages);
       result.name = out.company_name?.trim() || domain;
+      const extractedAt = new Date().toISOString();
       result.fields = Object.fromEntries(
         FIELD_KEYS.map((k) => {
           const f = out[k];
-          const hasValue = !!f.value?.trim() && f.status !== "unavailable";
-          const src = f.source_url && allowed.has(f.source_url) ? f.source_url : null;
+          const value = f.value?.trim() ?? "";
+          const excerpt = f.evidence_excerpt?.trim() ?? "";
+          const sourcePage = f.source_url
+            ? pages.find((page) => page.finalUrl === f.source_url)
+            : null;
+          const normalize = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+          const excerptVerified =
+            !!sourcePage &&
+            !!excerpt &&
+            [sourcePage.text, sourcePage.description ?? "", sourcePage.title ?? ""].some(
+              (content) => normalize(content).includes(normalize(excerpt)),
+            );
+          const hasValue =
+            !!value && !["not_found", "not_researched", "retrieval_failed"].includes(f.status);
+          const src =
+            excerptVerified && f.source_url && allowed.has(f.source_url) ? f.source_url : null;
           return [
             k,
             hasValue
-              ? { value: f.value!.trim(), status: src ? f.status : "uncertain", sourceUrl: src }
-              : { value: null, status: "unavailable", sourceUrl: null },
+              ? {
+                  value,
+                  status: src ? f.status : "uncertain",
+                  sourceUrl: src,
+                  evidenceExcerpt: src ? excerpt : null,
+                  extractedAt,
+                }
+              : {
+                  value: null,
+                  status: f.status,
+                  sourceUrl: null,
+                  evidenceExcerpt: null,
+                  extractedAt,
+                },
           ];
         }),
       ) as Record<FieldKey, Finding>;
@@ -465,14 +531,59 @@ function deterministicSummary(competitors: CompetitorResult[]): string | null {
   }
   const gaps = available.map((competitor) => {
     const missing = FIELD_KEYS.filter(
-      (key) => competitor.fields![key].status === "unavailable",
+      (key) => competitor.fields![key].status === "not_found",
     ).length;
-    return `${competitor.name}: ${missing} of ${FIELD_KEYS.length} fields unavailable`;
+    return `${competitor.name}: ${missing} of ${FIELD_KEYS.length} fields not found in retrieved pages`;
   });
   lines.push(
     `Evidence limitations: ${gaps.join("; ")}. These are research gaps, not confirmed product limitations.`,
   );
   return lines.map((line) => `- ${line}`).join("\n");
+}
+
+function summarizeVerifiedEvidence(competitors: CompetitorResult[]): string | null {
+  const available = competitors.filter((competitor) => competitor.ok && competitor.fields);
+  if (available.length < 2) return null;
+  const labels: Partial<Record<FieldKey, string>> = {
+    core_offering: "Core offering",
+    main_features: "Features",
+    integrations: "Listed integrations",
+    ai_capabilities: "AI capabilities",
+    published_pricing: "Published pricing",
+    key_differentiators: "Differentiators",
+  };
+  const bullets: string[] = [];
+  for (const key of Object.keys(labels) as FieldKey[]) {
+    const entries = available.flatMap((competitor) => {
+      const finding = competitor.fields![key];
+      if (!finding.value || !finding.sourceUrl || !finding.evidenceExcerpt) return [];
+      const excerpt = finding.evidenceExcerpt
+        .replace(/^[-*+ #\d.)]+/, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return [
+        `${competitor.name}: ${excerpt.slice(0, 140)}${excerpt.length > 140 ? "…" : ""} ${finding.sourceUrl}`,
+      ];
+    });
+    if (entries.length > 1 && new Set(entries).size > 1)
+      bullets.push(`${labels[key]} evidence: ${entries.join(" · ")}`);
+    else if (entries.length === 1)
+      bullets.push(
+        `${labels[key]} evidence was retrieved for one competitor only: ${entries[0]}. This is a coverage gap, not evidence of absence elsewhere.`,
+      );
+    if (bullets.length >= 3) break;
+  }
+  const gaps = available.map((competitor) => {
+    const missing = FIELD_KEYS.filter(
+      (key) => competitor.fields![key].status === "not_found",
+    ).length;
+    return `${competitor.name}: ${missing} fields not found in retrieved pages`;
+  });
+  if (bullets.length < 4)
+    bullets.push(
+      `Evidence limitations: ${gaps.join("; ")}. Unknown information is not treated as a product limitation.`,
+    );
+  return bullets.map((bullet) => `- ${bullet}`).join("\n");
 }
 
 export async function runComparison(urls: string[]): Promise<CompareResponse> {
@@ -512,20 +623,20 @@ export async function runComparison(urls: string[]): Promise<CompareResponse> {
   if (okCount < 2)
     summaryNote = "A comparison summary needs at least two websites with retrieved content.";
   else if (!aiKey || competitors.some((c) => c.extraction === "basic")) {
-    summary = deterministicSummary(competitors);
+    summary = summarizeVerifiedEvidence(competitors);
     summaryNote = "AI summary unavailable — showing basic extraction only.";
   } else {
     try {
       summary = await summarize(aiKey, competitors);
       if (!summary) {
-        summary = deterministicSummary(competitors);
+        summary = summarizeVerifiedEvidence(competitors);
         summaryNote = summary
           ? "Rule-based summary used because the AI summary was empty."
           : "Not enough source-backed findings are available to summarize differences.";
       }
     } catch (e) {
       console.error("Summary failed", e);
-      summary = deterministicSummary(competitors);
+      summary = summarizeVerifiedEvidence(competitors);
       summaryNote = "The summary couldn't be generated this time.";
     }
   }
@@ -540,7 +651,7 @@ export async function runComparison(urls: string[]): Promise<CompareResponse> {
     const citations =
       summary.match(/https?:\/\/[^\s)]+/g)?.map((url) => url.replace(/[.,;]+$/, "")) ?? [];
     if (!citations.length || citations.some((url) => !allowedSources.has(url))) {
-      summary = deterministicSummary(competitors);
+      summary = summarizeVerifiedEvidence(competitors);
       summaryNote = summary
         ? "Rule-based summary used because generated citations could not be verified."
         : "Not enough source-backed findings are available to summarize differences.";

@@ -16,7 +16,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { compareWebsites } from "@/lib/compare.functions";
-import { FIELD_KEYS, FIELD_LABELS, type CompareResponse, type Finding } from "@/lib/compare.types";
+import { rankByEvidencePriorities } from "@/lib/compare.analytics";
+import {
+  FIELD_KEYS,
+  FIELD_LABELS,
+  type CompareResponse,
+  type FieldKey,
+  type Finding,
+} from "@/lib/compare.types";
 import { validatePublicUrl } from "@/lib/url-validation";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -410,24 +417,23 @@ function Analytics({ result }: { result: CompareResponse }) {
     ["security", "security_claims", "Security requirements"],
   ] as const;
   const chosen = priorityFields.filter(([id]) => priorities.includes(id));
-  const recommendationScores = result.competitors
-    .map((competitor) => {
-      const supported = chosen.filter(([, key]) => {
-        const finding = competitor.fields?.[key];
-        return finding?.status === "found" && !!finding.sourceUrl && !!finding.value;
-      });
-      return { competitor, supported, score: chosen.length ? supported.length / chosen.length : 0 };
-    })
-    .sort((a, b) => b.score - a.score);
+  const recommendationScores = rankByEvidencePriorities(
+    result.competitors,
+    chosen.map(([, key]) => key as FieldKey),
+  );
   const recommendation = recommendationScores[0];
+  const tiedRecommendations = recommendationScores.filter(
+    (candidate) => candidate.score === recommendation?.score,
+  );
   const data = result.competitors.map((c) => {
     const findings = c.fields ? Object.values(c.fields) : [];
     return {
       name: c.name,
       pages: c.pages.length,
       backed: findings.filter((f) => f.value && f.sourceUrl).length,
-      unavailable: findings.filter((f) => f.status === "unavailable").length,
-      failed: c.pageErrors.length + (c.ok ? 0 : 1),
+      unavailable: findings.filter((f) => f.status === "not_found").length,
+      uncertain: findings.filter((f) => f.status === "uncertain").length,
+      failed: c.pageErrors.length + (c.searchError ? 1 : 0) + (c.ok ? 0 : 1),
     };
   });
   const featureRows = [
@@ -442,17 +448,21 @@ function Analytics({ result }: { result: CompareResponse }) {
     ),
   ];
   const namedIntegrations = result.competitors.map((competitor) => {
-    const value = competitor.fields?.integrations.value ?? "";
+    const integrationFinding = competitor.fields?.integrations;
+    const value = integrationFinding?.value ?? "";
+    const explicitlyListed = /\b(integrations?|integrates? with|connects? to)\b/i.test(
+      integrationFinding?.evidenceExcerpt ?? value,
+    );
     const names = value.split(/;\s*/).flatMap((statement) => {
       const match = statement.match(
         /(?:integrations?\s+(?:include|with)|integrates?\s+with|connects?\s+to)\s+(.+)/i,
       );
-      return match
-        ? match[1]
-            .split(/,|\band\b/i)
-            .map((name) => name.trim().replace(/[. ]+$/, ""))
-            .filter(Boolean)
-        : [];
+      if (match)
+        return (match[1] ?? "")
+          .split(/,|\band\b/i)
+          .map((name) => name.trim().replace(/[. ]+$/, ""))
+          .filter(Boolean);
+      return explicitlyListed ? [statement.trim().replace(/[. ]+$/, "")].filter(Boolean) : [];
     });
     return { competitor, names: [...new Set(names)] };
   });
@@ -498,8 +508,14 @@ function Analytics({ result }: { result: CompareResponse }) {
                 />
                 <Bar
                   dataKey="unavailable"
-                  name="Unavailable fields"
+                  name="Not found in retrieved pages"
                   fill="var(--chart-4)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="uncertain"
+                  name="Uncertain findings"
+                  fill="var(--chart-3)"
                   radius={[4, 4, 0, 0]}
                 />
                 <Bar
@@ -532,10 +548,18 @@ function Analytics({ result }: { result: CompareResponse }) {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {c.discoveredPages?.length ?? c.pages.length} pages discovered
                 </p>
+                {c.startedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Started {new Date(c.startedAt).toLocaleTimeString()}
+                  </p>
+                )}
                 <p className="mt-1 text-sm text-muted-foreground">
                   {c.pages.length} page(s) retrieved · {c.pageErrors.length} failed · extraction:{" "}
                   {c.extraction ?? "not run"}
                 </p>
+                {c.searchError && (
+                  <p className="mt-1 text-xs text-destructive">Search failed: {c.searchError}</p>
+                )}
                 {c.error && <p className="mt-1 text-sm text-destructive">{c.error}</p>}
                 {c.pageErrors.length > 0 && (
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
@@ -663,8 +687,8 @@ function Analytics({ result }: { result: CompareResponse }) {
       <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
         <h4 className="font-medium">Best Fit for Your Needs</h4>
         <p className="mt-1 text-xs text-muted-foreground">
-          This identifies the competitor with the most verified, source-linked information for your
-          selected priorities. It measures evidence coverage, not product quality.
+          This identifies the competitor with the strongest evidence coverage for your selected
+          priorities. It is a documentation score, not a product-quality ranking.
         </p>
         <fieldset className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
           <legend className="sr-only">Choose comparison priorities</legend>
@@ -685,29 +709,29 @@ function Analytics({ result }: { result: CompareResponse }) {
         </fieldset>
         {chosen.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">Choose at least one priority.</p>
-        ) : recommendation?.score ? (
+        ) : recommendation && recommendation.score > 0 ? (
           <div className="mt-4 border-t border-border pt-4">
             <p className="font-semibold">
               {recommendation.competitor.name} · {recommendation.supported.length}/{chosen.length}{" "}
-              priorities verified
+              evidence coverage
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Method: each selected priority has equal weight. A priority counts only when the
-              finding is marked found and has a source URL. Uncertain or missing evidence does not
-              count.
+              Method: each selected priority has equal weight. A priority counts only when the A
+              source-linked found claim counts 1, an uncertain source-linked excerpt counts 0.5, and
+              missing evidence counts 0. This is a documentation score, not product quality.
             </p>
             <ul className="mt-3 flex flex-wrap gap-3">
-              {recommendation.supported.map(([, key, label]) => {
-                const finding = recommendation.competitor.fields![key];
+              {recommendation.matched.map(({ key, status, sourceUrl }) => {
+                const label = priorityFields.find(([, field]) => field === key)?.[2] ?? key;
                 return (
                   <li key={key} className="text-sm">
                     <a
-                      href={finding.sourceUrl!}
+                      href={sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-primary underline"
                     >
-                      {label} evidence <ExternalLink className="inline h-3 w-3" />
+                      {label} evidence ({status}) <ExternalLink className="inline h-3 w-3" />
                     </a>
                   </li>
                 );
@@ -765,10 +789,15 @@ function renderBold(text: string) {
 }
 
 function FindingCell({ f }: { f: Finding }) {
-  if (f.status === "unavailable" || !f.value)
+  if (f.status !== "found" && f.status !== "uncertain")
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-        <HelpCircle className="h-3.5 w-3.5" /> Not published / unavailable
+        <HelpCircle className="h-3.5 w-3.5" />
+        {f.status === "retrieval_failed"
+          ? "Retrieval failed"
+          : f.status === "not_researched"
+            ? "Not researched"
+            : "Not found in retrieved pages"}
       </span>
     );
   return (
@@ -786,7 +815,12 @@ function FindingCell({ f }: { f: Finding }) {
               Evidence and source
             </summary>
             <div className="mt-2 space-y-1 rounded-md border border-border bg-muted/40 p-2">
-              <p className="text-foreground">{f.value}</p>
+              <p className="text-foreground">{f.evidenceExcerpt ?? f.value}</p>
+              {f.extractedAt && (
+                <p className="text-muted-foreground">
+                  Extracted {new Date(f.extractedAt).toLocaleString()}
+                </p>
+              )}
               <a
                 href={f.sourceUrl}
                 target="_blank"
