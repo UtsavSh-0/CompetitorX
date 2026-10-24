@@ -16,6 +16,51 @@ const SEARCH_URL = "https://api.search.tinyfish.ai";
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
 const MODEL = "openai/gpt-6-astra";
 
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function signResearch(competitors: CompetitorResult[], secret: string): Promise<string> {
+  const snapshot = {
+    version: 1,
+    expiresAt: Date.now() + 20 * 60 * 1000,
+    competitors: competitors.map(({ name, inputUrl, ok, pages, fields }) => ({
+      name,
+      inputUrl,
+      ok,
+      pages: pages.map(({ url }) => url),
+      fields: fields
+        ? Object.fromEntries(
+            FIELD_KEYS.map((key) => {
+              const finding = fields[key];
+              return [
+                key,
+                {
+                  value: finding.value?.slice(0, 400) ?? null,
+                  status: finding.status,
+                  sourceUrl: finding.sourceUrl,
+                  evidenceExcerpt: finding.evidenceExcerpt?.slice(0, 400) ?? null,
+                },
+              ];
+            }),
+          )
+        : null,
+    })),
+  };
+  const payload = toBase64Url(new TextEncoder().encode(JSON.stringify(snapshot)));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return `${payload}.${toBase64Url(new Uint8Array(signature))}`;
+}
+
 const FETCH_ERROR_TEXT: Record<string, string> = {
   target_http_error: "The website returned an error",
   page_not_found: "Page not found",
@@ -659,5 +704,12 @@ export async function runComparison(urls: string[]): Promise<CompareResponse> {
   }
   if (summary && (!aiKey || competitors.some((competitor) => competitor.extraction === "basic")))
     summaryNote = "Rule-based summary of retrieved findings; no LLM summary was generated.";
-  return { competitors, summary, summaryNote, generatedAt: new Date().toISOString() };
+  const researchToken = await signResearch(competitors, tfKey);
+  return {
+    competitors,
+    summary,
+    summaryNote,
+    generatedAt: new Date().toISOString(),
+    researchToken,
+  };
 }

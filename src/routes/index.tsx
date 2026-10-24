@@ -16,7 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { compareWebsites } from "@/lib/compare.functions";
+import { checkGeminiHealth } from "@/lib/gemini-health.functions";
+import { generateVerdict } from "@/lib/verdict.functions";
 import { rankByEvidencePriorities } from "@/lib/compare.analytics";
+import type { Verdict } from "@/lib/verdict.types";
 import {
   FIELD_KEYS,
   FIELD_LABELS,
@@ -274,6 +277,72 @@ function Index() {
 }
 
 function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => void }) {
+  const [priorities, setPriorities] = useState<string[]>(["features", "integrations"]);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [verdictFor, setVerdictFor] = useState<string | null>(null);
+  const [verdictError, setVerdictError] = useState<string | null>(null);
+  const [generatingVerdict, setGeneratingVerdict] = useState(false);
+  const verdictRequestInFlight = useRef(false);
+  const [geminiHealth, setGeminiHealth] = useState<{
+    ok: boolean;
+    model?: string;
+    message?: string;
+    error?: string;
+  } | null>(null);
+  const [checkingGemini, setCheckingGemini] = useState(false);
+  const geminiHealthInFlight = useRef(false);
+  const requestVerdict = useServerFn(generateVerdict);
+  const requestGeminiHealth = useServerFn(checkGeminiHealth);
+  const eligible =
+    !!result.researchToken && result.competitors.filter((competitor) => competitor.ok).length >= 2;
+  const prioritySignature = priorities.slice().sort().join(",");
+
+  async function testGeminiConnection() {
+    if (geminiHealthInFlight.current) return;
+    geminiHealthInFlight.current = true;
+    setCheckingGemini(true);
+    setGeminiHealth(null);
+    try {
+      setGeminiHealth(await requestGeminiHealth());
+    } catch {
+      setGeminiHealth({
+        ok: false,
+        error:
+          "Could not reach the Gemini connectivity check. Verify this app's server deployment and retry.",
+      });
+    } finally {
+      geminiHealthInFlight.current = false;
+      setCheckingGemini(false);
+    }
+  }
+
+  async function generate() {
+    if (!eligible || !result.researchToken || verdictRequestInFlight.current) return;
+    verdictRequestInFlight.current = true;
+    setGeneratingVerdict(true);
+    setVerdictError(null);
+    try {
+      const response = await requestVerdict({
+        data: { researchToken: result.researchToken, priorities },
+      });
+      if (response.ok) {
+        setVerdict(response.verdict);
+        setVerdictFor(prioritySignature);
+      } else {
+        setVerdict(null);
+        setVerdictFor(null);
+        setVerdictError(response.error);
+      }
+    } catch {
+      setVerdict(null);
+      setVerdictFor(null);
+      setVerdictError("Gemini couldn't generate the verdict. Please retry.");
+    } finally {
+      verdictRequestInFlight.current = false;
+      setGeneratingVerdict(false);
+    }
+  }
+
   const cols = result.competitors;
   return (
     <div className="mt-12 space-y-8">
@@ -372,7 +441,92 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
         </table>
       </div>
 
-      <Analytics result={result} />
+      <Analytics
+        result={result}
+        priorities={priorities}
+        setPriorities={(next) => {
+          setPriorities(next);
+          setVerdict(null);
+          setVerdictFor(null);
+          setVerdictError(null);
+        }}
+      />
+
+      <section
+        aria-labelledby="ai-verdict-heading"
+        className="rounded-2xl border border-border bg-card p-6 shadow-card"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 id="ai-verdict-heading" className="flex items-center gap-2 text-lg font-semibold">
+              <Sparkles className="h-4 w-4 text-primary" /> Gemini AI verdict
+            </h3>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              A separate recommendation grounded in this run’s source-backed TinyFish findings and
+              your selected priorities.
+            </p>
+          </div>
+          <Button variant="outline" disabled={checkingGemini} onClick={testGeminiConnection}>
+            {checkingGemini ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {checkingGemini ? "Testing Gemini…" : "Test Gemini connection"}
+          </Button>
+          <Button variant="hero" disabled={!eligible || generatingVerdict} onClick={generate}>
+            {generatingVerdict ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {generatingVerdict
+              ? "Generating verdict…"
+              : verdict
+                ? "Regenerate AI Verdict"
+                : "Generate AI Verdict"}
+          </Button>
+        </div>
+        {!eligible && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            A verdict needs successful research for at least two competitors.
+          </p>
+        )}
+        {checkingGemini && (
+          <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
+            Checking the server-side Gemini connection…
+          </p>
+        )}
+        {geminiHealth && !checkingGemini && (
+          <p
+            role={geminiHealth.ok ? "status" : "alert"}
+            className={`mt-4 text-sm ${geminiHealth.ok ? "text-success" : "text-destructive"}`}
+          >
+            {geminiHealth.ok
+              ? `${geminiHealth.message} Model: ${geminiHealth.model}.`
+              : geminiHealth.error}
+          </p>
+        )}
+        {generatingVerdict && (
+          <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
+            Gemini is reviewing the verified findings and citations…
+          </p>
+        )}
+        {verdictError && !generatingVerdict && (
+          <div
+            role="alert"
+            className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4"
+          >
+            <p className="text-sm text-destructive">{verdictError}</p>
+            <Button variant="outline" size="sm" onClick={generate}>
+              <RotateCcw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        )}
+        {verdict && verdictFor === prioritySignature && !generatingVerdict && (
+          <VerdictView verdict={verdict} />
+        )}
+      </section>
 
       <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
         <h3 className="flex items-center gap-2 text-lg font-semibold">
@@ -406,8 +560,15 @@ function Results({ result, onRetry }: { result: CompareResponse; onRetry: () => 
   );
 }
 
-function Analytics({ result }: { result: CompareResponse }) {
-  const [priorities, setPriorities] = useState<string[]>(["features", "integrations"]);
+function Analytics({
+  result,
+  priorities,
+  setPriorities,
+}: {
+  result: CompareResponse;
+  priorities: string[];
+  setPriorities: (priorities: string[]) => void;
+}) {
   const priorityFields = [
     ["pricing", "published_pricing", "Published price"],
     ["features", "main_features", "Features"],
@@ -698,8 +859,10 @@ function Analytics({ result }: { result: CompareResponse }) {
                 type="checkbox"
                 checked={priorities.includes(id)}
                 onChange={(event) =>
-                  setPriorities((current) =>
-                    event.target.checked ? [...current, id] : current.filter((item) => item !== id),
+                  setPriorities(
+                    event.target.checked
+                      ? [...priorities, id]
+                      : priorities.filter((item) => item !== id),
                   )
                 }
               />
@@ -763,6 +926,170 @@ function Analytics({ result }: { result: CompareResponse }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function VerdictView({ verdict }: { verdict: Verdict }) {
+  return (
+    <div className="mt-6 space-y-6 border-t border-border pt-6">
+      <div className="rounded-xl bg-muted/50 p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {verdict.status === "insufficient_evidence"
+              ? "Insufficient evidence"
+              : "Overall verdict"}
+          </span>
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs capitalize">
+            {verdict.overallVerdict.confidence} confidence
+          </span>
+        </div>
+        <h4 className="mt-2 text-xl font-semibold">
+          {verdict.overallVerdict.winner ? `${verdict.overallVerdict.winner}: ` : ""}
+          {verdict.overallVerdict.headline}
+        </h4>
+        <p className="mt-2 text-sm leading-relaxed">{verdict.overallVerdict.reasoning}</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Confidence: {verdict.overallVerdict.confidenceReason}
+        </p>
+      </div>
+      {verdict.priorityRecommendations.length > 0 && (
+        <div>
+          <h4 className="font-semibold">Recommendations by priority</h4>
+          <ul className="mt-3 grid gap-3 md:grid-cols-2">
+            {verdict.priorityRecommendations.map((item) => (
+              <li key={item.priority} className="rounded-lg border border-border p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {item.priority}
+                </p>
+                <p className="mt-1 font-medium">{item.winner ?? "No clear winner"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{item.reason}</p>
+                <EvidenceLinks urls={item.evidenceUrls} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div>
+        <h4 className="font-semibold">Strengths, trade-offs and gaps</h4>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {verdict.competitorAnalysis.map((competitor) => (
+            <article key={competitor.name} className="rounded-lg border border-border p-4">
+              <h5 className="font-semibold">{competitor.name}</h5>
+              <p className="mt-2 text-sm">
+                <strong>Best for:</strong> {competitor.bestFor}
+              </p>
+              <p className="mt-1 text-sm">
+                <strong>Pricing:</strong> {competitor.pricingAssessment}
+              </p>
+              {competitor.strengths.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase text-success">
+                    Supported strengths
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {competitor.strengths.map((claim, index) => (
+                      <li key={`${claim.claim}-${index}`}>
+                        {claim.claim}
+                        <EvidenceLinks urls={claim.evidenceUrls} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {competitor.weaknesses.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase text-warning">
+                    Limitations and trade-offs
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {competitor.weaknesses.map((claim, index) => (
+                      <li key={`${claim.claim}-${index}`}>
+                        {claim.claim}
+                        <EvidenceLinks urls={claim.evidenceUrls} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {competitor.missingInformation.length > 0 && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  <strong>Not verified:</strong> {competitor.missingInformation.join(" · ")}
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-5 md:grid-cols-2">
+        <div>
+          <h4 className="font-semibold">Key differences</h4>
+          {verdict.keyDifferences.length ? (
+            <ul className="mt-2 space-y-3">
+              {verdict.keyDifferences.map((item, index) => (
+                <li key={`${item.difference}-${index}`} className="text-sm">
+                  <p className="font-medium">
+                    {item.difference}
+                    {item.winner ? ` · ${item.winner}` : ""}
+                  </p>
+                  <p className="text-muted-foreground">{item.explanation}</p>
+                  <EvidenceLinks urls={item.evidenceUrls} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No clear source-backed differences were identified.
+            </p>
+          )}
+        </div>
+        <div>
+          <h4 className="font-semibold">Risks and unknowns</h4>
+          {verdict.risksAndUnknowns.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {verdict.risksAndUnknowns.map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">No additional risks were returned.</p>
+          )}
+          <h4 className="mt-4 font-semibold">What to investigate next</h4>
+          {verdict.nextSteps.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              {verdict.nextSteps.map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">No follow-up steps suggested.</p>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Verdict text is Gemini-generated from this comparison’s verified findings. Check linked
+        evidence before acting; unknown information is not treated as a product weakness.
+      </p>
+    </div>
+  );
+}
+
+function EvidenceLinks({ urls }: { urls: string[] }) {
+  if (!urls.length)
+    return <span className="ml-1 text-xs text-muted-foreground">No verified citation</span>;
+  return (
+    <span className="ml-1 inline-flex flex-wrap gap-x-2">
+      {urls.map((url) => (
+        <a
+          key={url}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-primary underline"
+        >
+          Evidence <ExternalLink className="inline h-3 w-3" />
+        </a>
+      ))}
+    </span>
   );
 }
 
