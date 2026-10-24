@@ -27,6 +27,8 @@ Copy `.env.example` to `.env` for local development. Set `TINYFISH_API_KEY` for 
 
 After starting the app, run a comparison and use **Test Gemini connection** to check key availability, the configured model and API access before generating a verdict. This check makes a minimal server-side request and returns a sanitized diagnostic; automated tests mock the Gemini response.
 
+Gemini calls use at most three total attempts for transient timeouts, rate limits and server errors, with jittered exponential backoff and `Retry-After` support. Authentication, permission, request-format and missing-model errors are returned without retrying. A verdict failure keeps the completed TinyFish research on screen so the user can retry without researching again.
+
 The production build uses Nitro's Cloudflare Worker target. In Cloudflare, open **Workers & Pages → your Worker → Settings → Variables and Secrets**, add `TINYFISH_API_KEY` and `GEMINI_API_KEY` as **Secret** values, optionally add `GEMINI_MODEL` as a plain text variable, then deploy the Worker. See [Cloudflare's secrets guide](https://developers.cloudflare.com/workers/configuration/secrets/) for the current dashboard steps.
 
 ## Built with

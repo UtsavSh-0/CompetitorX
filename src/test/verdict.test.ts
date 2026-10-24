@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createInteraction } = vi.hoisted(() => ({ createInteraction: vi.fn() }));
+const { createInteraction, getModel } = vi.hoisted(() => ({
+  createInteraction: vi.fn(),
+  getModel: vi.fn(),
+}));
 vi.mock("@google/genai", () => ({
   GoogleGenAI: class {
+    models = { get: getModel };
     interactions = { create: createInteraction };
   },
 }));
@@ -10,6 +14,11 @@ vi.mock("@google/genai", () => ({
 import { generateEvidenceVerdict } from "@/lib/verdict.server";
 import { checkGeminiConnection } from "@/lib/gemini-health.server";
 import { describeGeminiFailure, getGeminiStatus } from "@/lib/gemini-diagnostics";
+import {
+  calculateGeminiRetryDelay,
+  parseRetryAfter,
+  retryGeminiRequest,
+} from "@/lib/gemini-retry.server";
 
 const baseVerdict = {
   status: "success",
@@ -145,6 +154,24 @@ describe("Gemini evidence verdict", () => {
     ).rejects.toThrow("unverified source link");
   });
 
+  it("rejects a valid fetched URL attached to the wrong competitor", async () => {
+    createInteraction.mockResolvedValue({
+      output_text: JSON.stringify({
+        ...baseVerdict,
+        competitorAnalysis: [
+          {
+            ...baseVerdict.competitorAnalysis[0],
+            strengths: [{ claim: "Lists workflows", evidenceUrls: ["https://beta.example"] }],
+          },
+          baseVerdict.competitorAnalysis[1],
+        ],
+      }),
+    });
+    await expect(
+      generateEvidenceVerdict(await signedResearchToken(), ["features"]),
+    ).rejects.toThrow("another competitor's source");
+  });
+
   it("rejects a winner outside the researched competitor set", async () => {
     createInteraction.mockResolvedValue({
       output_text: JSON.stringify({
@@ -206,6 +233,7 @@ describe("Gemini connectivity diagnostics", () => {
     vi.clearAllMocks();
     process.env["GEMINI_API_KEY"] = "test-gemini-key";
     delete process.env["GEMINI_MODEL"];
+    getModel.mockResolvedValue({ name: "models/gemini-3.8-flash" });
     createInteraction.mockResolvedValue({ output_text: "OK" });
   });
 
@@ -216,10 +244,12 @@ describe("Gemini connectivity diagnostics", () => {
       model: "gemini-3.8-flash",
       message: "Gemini connection successful.",
     });
-    expect(createInteraction).toHaveBeenCalledWith(
-      { model: "gemini-3.8-flash", input: "Reply with OK only.", store: false },
-      { timeout_ms: 15_000, maxRetries: 0 },
-    );
+    expect(createInteraction).toHaveBeenCalledWith({
+      model: "gemini-3.8-flash",
+      input: "Reply with OK only.",
+      store: false,
+    });
+    expect(getModel).toHaveBeenCalledWith({ model: "gemini-3.8-flash" });
   });
 
   it("reports missing key configuration without making a request", async () => {
@@ -230,6 +260,15 @@ describe("Gemini connectivity diagnostics", () => {
       error: expect.stringContaining("GEMINI_API_KEY"),
     });
     expect(createInteraction).not.toHaveBeenCalled();
+  });
+
+  it("does not report connectivity success for an invalid test response", async () => {
+    createInteraction.mockResolvedValue({ output_text: "unexpected" });
+    await expect(checkGeminiConnection()).resolves.toMatchObject({
+      ok: false,
+      configured: true,
+      error: expect.stringContaining("unexpected connectivity-test response"),
+    });
   });
 
   it("classifies API access errors without returning the raw SDK message", async () => {
@@ -253,8 +292,63 @@ describe("Gemini connectivity diagnostics", () => {
     expect(describeGeminiFailure(401)).toContain("authentication failed");
     expect(describeGeminiFailure(404)).toContain("GEMINI_MODEL");
     expect(describeGeminiFailure(429)).toContain("quota or rate limit");
-    expect(describeGeminiFailure(503)).toContain("temporarily unavailable");
+    expect(describeGeminiFailure(503)).toContain("temporarily at capacity");
     expect(getGeminiStatus({ status: "PERMISSION_DENIED", code: 403 })).toBe(403);
     expect(getGeminiStatus({ name: "APIConnectionTimeoutError" })).toBe(408);
+  });
+
+  it("retries a transient 503 once and succeeds within the bounded policy", async () => {
+    vi.useFakeTimers();
+    createInteraction
+      .mockRejectedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({ output_text: "OK" });
+    const onRetry = vi.fn();
+    try {
+      const pending = retryGeminiRequest(
+        "test-key",
+        (client) => client.interactions.create({ model: "gemini-3.8-flash", input: "OK" }),
+        onRetry,
+      );
+      await vi.runAllTimersAsync();
+      await expect(pending).resolves.toMatchObject({ output_text: "OK" });
+      expect(createInteraction).toHaveBeenCalledTimes(2);
+      expect(onRetry).toHaveBeenCalledOnce();
+      expect(onRetry.mock.calls[0]?.[0]).toMatchObject({ attempt: 1, status: 503 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops after three attempts and does not retry permanent request errors", async () => {
+    vi.useFakeTimers();
+    createInteraction.mockRejectedValue({ status: 503 });
+    try {
+      const pending = retryGeminiRequest("test-key", (client) =>
+        client.interactions.create({ model: "gemini-3.8-flash", input: "OK" }),
+      );
+      const assertion = expect(pending).rejects.toMatchObject({ status: 503 });
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(createInteraction).toHaveBeenCalledTimes(3);
+
+      vi.clearAllMocks();
+      createInteraction.mockRejectedValue({ status: 403 });
+      await expect(
+        retryGeminiRequest("test-key", (client) =>
+          client.interactions.create({ model: "gemini-3.8-flash", input: "OK" }),
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(createInteraction).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("parses Retry-After seconds and the Gemini retry-after-ms header", () => {
+    expect(parseRetryAfter(new Headers({ "retry-after": "2" }))).toBe(2_000);
+    expect(parseRetryAfter(new Headers({ "retry-after-ms": "1250" }))).toBe(1_250);
+    expect(calculateGeminiRetryDelay(1, undefined, 0.5)).toBe(1_000);
+    expect(calculateGeminiRetryDelay(2, undefined, 0.5)).toBe(2_000);
+    expect(calculateGeminiRetryDelay(1, 5_000, 0)).toBe(5_000);
   });
 });

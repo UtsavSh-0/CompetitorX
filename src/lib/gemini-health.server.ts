@@ -1,5 +1,9 @@
-import { GoogleGenAI } from "@google/genai";
-import { describeGeminiFailure, getGeminiStatus } from "./gemini-diagnostics";
+import {
+  describeGeminiFailure,
+  getGeminiStatus,
+  getSafeGeminiErrorReason,
+} from "./gemini-diagnostics";
+import { retryGeminiRequest } from "./gemini-retry.server";
 
 export type GeminiHealthResult =
   | { ok: true; configured: true; model: string; message: string }
@@ -16,23 +20,35 @@ export async function checkGeminiConnection(): Promise<GeminiHealthResult> {
   }
   const model = process.env["GEMINI_MODEL"] || "gemini-3.8-flash";
   try {
-    const client = new GoogleGenAI({ apiKey });
-    const response = await client.interactions.create(
-      { model, input: "Reply with OK only.", store: false },
-      { timeout_ms: 15_000, maxRetries: 0 },
+    let modelVerified = false;
+    const response = await retryGeminiRequest(
+      apiKey,
+      async (client) => {
+        if (!modelVerified) {
+          await client.models.get({ model });
+          modelVerified = true;
+        }
+        return client.interactions.create({ model, input: "Reply with OK only.", store: false });
+      },
+      ({ attempt, status, waitMs }) =>
+        console.warn("Retrying Gemini connectivity check", { attempt, status, waitMs }),
     );
-    if (!response.output_text?.trim()) {
+    if (response.output_text?.trim().toUpperCase() !== "OK") {
       return {
         ok: false,
         configured: true,
         model,
-        error: "Gemini responded without text. Check the model configuration and retry.",
+        error:
+          "Gemini returned an unexpected connectivity-test response. Check the model and retry.",
       };
     }
     return { ok: true, configured: true, model, message: "Gemini connection successful." };
   } catch (error) {
     const status = getGeminiStatus(error);
-    console.error("Gemini connectivity check failed", status ?? "unknown error");
+    console.error("Gemini connectivity check failed", {
+      status: status ?? "unknown",
+      reason: getSafeGeminiErrorReason(error, apiKey),
+    });
     return { ok: false, configured: true, model, error: describeGeminiFailure(status) };
   }
 }
